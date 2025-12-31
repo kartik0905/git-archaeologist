@@ -9,3 +9,4 @@ wheels/
 # Virtual environments
 .venv
 sample_repo/
+chroma_db/
