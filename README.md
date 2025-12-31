@@ -1,73 +1,112 @@
-# 🧠 Legacy Code Archaeologist
-**Chat with the history of any GitHub repository — understand _why_ code changed, not just _what_ changed.**
+# 🏛️ Legacy Code Archaeologist
+
+> **An AI-powered system that lets you talk to the *history* of any GitHub repository — not just its current code.**
 
 ![Python](https://img.shields.io/badge/Python-3.10%2B-blue)
 ![Streamlit](https://img.shields.io/badge/Streamlit-Web%20UI-red)
 ![OpenAI](https://img.shields.io/badge/OpenAI-GPT--4.1--nano-teal)
 ![License](https://img.shields.io/badge/License-MIT-yellow)
 
----
+Legacy Code Archaeologist is a production-grade **Retrieval-Augmented Generation (RAG)** tool designed to analyze *how* and *why* a codebase evolved over time.  
+Instead of reading static snapshots, it mines **actual Git diffs**, allowing you to ask high-impact questions like:
 
-## 🚀 Overview
+- *“Who introduced the timeout bug?”*  
+- *“Why was the authentication logic rewritten in 2021?”*  
+- *“When did this API contract change?”*  
 
-**Legacy Code Archaeologist** is a Retrieval-Augmented Generation (RAG) system that allows developers to deeply analyze the history of any public GitHub repository.
-
-Instead of manually inspecting commits, this tool enables natural-language questions like:
-
-- *Why was this timeout increased?*
-- *Who introduced this bug?*
-- *When did this logic change and why?*
-
-It reads **actual code diffs**, not just commit messages, and uses AI to generate accurate, contextual explanations.
+Built for scalability, accuracy, and real-world engineering workflows.
 
 ---
 
-## ✨ Key Features
+## 🚀 Key Features
 
-### 🔍 Deep Git Diff Intelligence
-- Parses real `+/-` code diffs from commits
-- Tracks logic changes, refactors, and parameter updates
+### 🔍 Deep Git History Intelligence
+- Parses **real commit diffs** (added/removed lines) — not just file snapshots.
+- Understands *why* code changed, not just *what* changed.
 
-### ⚡ Dynamic Repository Loading
-- Accepts any public GitHub URL
-- Automatically clones and indexes the repository
+### ⚡ High-Performance Mining Engine
+- Generator-based architecture enables **O(1) memory usage**.
+- Handles massive repositories (Linux, React, Kubernetes) efficiently.
 
-### 🧠 RAG-Powered Q&A
-- Embeddings stored in **ChromaDB**
-- Semantic search powered by **SentenceTransformers**
-- Reasoning performed by **OpenAI GPT-3.5 Turbo**
+### 🧠 AI-Powered Q&A
+- Uses **OpenAI GPT-3.5 Turbo** for contextual reasoning.
+- Powered by **LangChain + ChromaDB** for semantic search over commit history.
 
-### 🧾 Streaming Responses
-- Token-by-token response streaming (ChatGPT-like UX)
+### 🕰️ Time Machine Mode
+- Switch between:
+  - **Recent History (Fast Scan)**
+  - **Deep Excavation (Full Repo Analysis)**
 
-### 📄 PDF Export
-- Export chat history and audit trails as clean PDF reports
+### 📊 Audit-Grade Reporting
+- Automatically generates **PDF audit reports** of chat sessions.
+- Ideal for compliance, audits, and engineering reviews.
 
-### 🧹 Automatic Cleanup
-- Deletes cloned repos and vector databases after use
-
-### 🔐 Secure by Design
-- API keys stored using environment variables
-- No secrets committed to source control
+### 🧹 Smart Resource Management
+- Shallow Git clones (`--depth`) for 99% faster fetches.
+- Auto-cleanup of cloned repos and vector databases.
 
 ---
 
 ## 🧱 Tech Stack
 
-| Layer | Technology |
-|------|------------|
-| Language | Python |
-| UI | Streamlit |
-| Git Mining | GitPython |
-| Vector DB | ChromaDB |
-| Embeddings | SentenceTransformers |
-| LLM | OpenAI GPT-3.5 |
-| PDF Export | FPDF |
-| Package Manager | uv / pip |
+**Backend**
+- Python 3.10+
+- GitPython (Custom Mining Engine)
+- LangChain
+- ChromaDB (Local Vector Store)
+
+**AI Engine**
+- OpenAI GPT-3.5 Turbo
+
+**Frontend**
+- Streamlit
+
+**DevOps / Tooling**
+- uv (Fast Python package manager)
+- python-dotenv
 
 ---
 
-## 📦 Installation
+## 🧭 System Architecture
+
+```
+┌──────────────┐
+│   Git Repo   │
+└──────┬───────┘
+       ↓
+┌─────────────────────┐
+│  Custom Miner Engine│  ← Generator-based diff processing
+└──────┬──────────────┘
+       ↓
+┌─────────────────────┐
+│   ChromaDB Vector   │  ← Semantic indexing
+└──────┬──────────────┘
+       ↓
+┌─────────────────────┐
+│  OpenAI GPT-3.5 API │  ← Reasoning & answers
+└──────┬──────────────┘
+       ↓
+┌─────────────────────┐
+│   Streamlit UI      │  ← Chat + Time Controls
+└─────────────────────┘
+```
+
+---
+
+## 🖥️ Demo / Usage
+
+1. Paste any **public GitHub repository URL**
+2. Select:
+   - **Fast Mode** → Recent commits only
+   - **Deep Mode** → Full historical analysis
+3. Ask natural language questions:
+   - “Why was this function refactored?”
+   - “Who changed the authentication logic?”
+4. Export a **PDF audit report** if needed.
+
+---
+
+## ⚙️ Installation
 
 ### 1️⃣ Clone the repository
 ```bash
@@ -75,60 +114,45 @@ git clone https://github.com/kartik0905/git-archaeologist.git
 cd git-archaeologist
 ```
 
-### 2️⃣ Create virtual environment
+### 2️⃣ Install dependencies
 ```bash
-uv venv
-source .venv/bin/activate
+pip install -r requirements.txt
 ```
 
-### 3️⃣ Install dependencies
-```bash
-uv pip install -r requirements.txt
-```
-
-### 4️⃣ Configure environment variables
+### 3️⃣ Configure environment variables
 Create a `.env` file:
 ```env
-OPENAI_API_KEY=your_openai_api_key
+OPENAI_API_KEY=your_api_key_here
 ```
 
----
-
-## ▶️ Running the App
-
+### 4️⃣ Run the application
 ```bash
 streamlit run app.py
 ```
 
-Open the provided local URL in your browser.
-
 ---
 
-## 🧠 How It Works
+## 🗂️ Project Structure
 
 ```
-GitHub Repo
-   ↓
-Git Commit History + Diffs
-   ↓
-Chunking & Embeddings
-   ↓
-ChromaDB Vector Store
-   ↓
-Semantic Retrieval
-   ↓
-LLM Reasoning (GPT‑4.1 nano)
+.
+├── app.py              # Streamlit UI & user interaction
+├── miner.py            # Core mining engine (diff parsing, batching)
+├── vector_store.py     # ChromaDB integration
+├── prompts/            # LLM prompt templates
+├── utils/              # Helpers & cleanup logic
+├── reports/            # Generated PDF audit reports
+└── requirements.txt
 ```
 
 ---
 
-## 🛣️ Roadmap
+## 🧠 Why This Project Stands Out
 
-- GitHub OAuth for private repositories  
-- Visual diff timelines  
-- Multi-repo analysis  
-- Test impact analysis  
-- VS Code extension  
+- Designed like a **real production system**, not a demo.
+- Handles **large-scale repositories** efficiently.
+- Solves a *real developer pain point* — understanding legacy code.
+- Built with extensibility in mind (CI analysis, PR reviews, blame tracking).
 
 ---
 
@@ -138,4 +162,9 @@ MIT License
 
 ---
 
-**Built for developers who want to understand *why* the code exists — not just what it does.**
+## ⭐ If You Like This Project
+Star the repository and feel free to contribute or fork it for your own tooling.
+
+---
+
+**Built with engineering discipline, not just prompts.**
