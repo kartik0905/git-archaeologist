@@ -10,7 +10,7 @@
 Legacy Code Archaeologist is a production-grade **Retrieval-Augmented Generation (RAG)** tool designed to analyze *how* and *why* a codebase evolved over time.  
 Instead of reading static snapshots, it mines **actual Git diffs**, allowing you to ask high-impact questions like:
 
-- *“Who introduced the timeout bug?”*  
+- *“Who introduced the timeout bug..?”*  
 - *“Why was the authentication logic rewritten in 2021?”*  
 - *“When did this API contract change?”*  
 
