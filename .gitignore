@@ -11,3 +11,4 @@ wheels/
 sample_repo/
 chroma_db/
 .env
+temp_repo_clone/
