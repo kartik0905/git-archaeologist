@@ -58,6 +58,23 @@ def reset_and_index(repo_url, commit_limit):
     cleanup_temp_data()
     status_text = st.empty()
     progress_bar = st.progress(0)
+
+    if not repo_url.startswith(("http://", "https://")):
+        status_text.error("❌ Invalid URL. Please start with http:// or https://")
+        return False
+
+    status_text.info(f"📡 Verifying repository existence...")
+    try:
+        git.cmd.Git().ls_remote(repo_url)
+    except git.exc.GitCommandError as e:
+        error_msg = str(e).lower()
+        if "not found" in error_msg:
+            status_text.error("❌ Repository not found. Please check the URL.")
+        elif "authentication" in error_msg or "could not read password" in error_msg:
+            status_text.error("🔒 Repository is Private. Access denied.")
+        else:
+            status_text.error(f"❌ Invalid Repository URL: {e}")
+        return False
     
     if commit_limit == 0:
         status_text.info(f"⏳ Cloning {repo_url} (FULL HISTORY)... This may take a while.")
@@ -230,7 +247,7 @@ if prompt := st.chat_input("Ask about code changes..."):
             """
             
             stream = client.chat.completions.create(
-                model="gpt-3.5-turbo",
+                model="gpt-4.1-nano",
                 messages=[{"role": "user", "content": full_prompt}],
                 stream=True,
             )
