@@ -2,7 +2,21 @@ import git
 from datetime import datetime
 import os
 
-def load_git_history(repo_path, branch="main", limit=50):
+IGNORE_EXTENSIONS = {'.png', '.jpg', '.jpeg', '.gif', '.svg', '.mp4', '.zip', '.tar', '.gz', '.lock', '.json'}
+IGNORE_DIRS = {'dist', 'build', 'node_modules', '__pycache__', '.idea', '.vscode'}
+
+def should_ignore(file_path):
+    if not file_path: return True
+    if any(file_path.endswith(ext) for ext in IGNORE_EXTENSIONS):
+        return True
+    if any(part in IGNORE_DIRS for part in file_path.split('/')):
+        return True
+    return False
+
+def load_git_history(repo_path, branch="main", limit=None):
+    """
+    Generator function that yields commits one by one.
+    """
     if not os.path.exists(repo_path):
         raise ValueError(f"Path not found: {repo_path}")
 
@@ -12,13 +26,14 @@ def load_git_history(repo_path, branch="main", limit=50):
         raise ValueError(f"Not a valid git repo: {repo_path}")
 
     print(f"⛏️  Mining repository: {repo_path}...")
-    
-    history_data = []
 
+    target_branch = branch
     try:
-        commits = list(repo.iter_commits(branch, max_count=limit))
-    except git.exc.GitCommandError:
-        commits = list(repo.iter_commits("master", max_count=limit))
+        repo.git.rev_parse("--verify", branch)
+    except:
+        target_branch = "master"
+
+    commits = repo.iter_commits(target_branch, max_count=limit)
 
     for commit in commits:
         message = commit.message.strip()
@@ -28,30 +43,35 @@ def load_git_history(repo_path, branch="main", limit=50):
         diff_summary = ""
         
         if commit.parents:
-            parent = commit.parents[0]
-            diffs = parent.diff(commit, create_patch=True)
-            
-            for diff in diffs:
-                try:
-                    file_path = diff.b_path if diff.b_path else diff.a_path
-                    
-                    if "lock" in file_path or ".png" in file_path:
+            try:
+                parent = commit.parents[0]
+                diffs = parent.diff(commit, create_patch=True)
+                
+                for diff in diffs:
+                    try:
+                        file_path = diff.b_path if diff.b_path else diff.a_path
+                        
+                        if should_ignore(file_path):
+                            continue
+                            
+                        patch_text = diff.diff.decode('utf-8', errors='replace')
+                        
+                        if len(patch_text) > 600:
+                            patch_text = patch_text[:600] + "...\n(truncated)"
+                            
+                        diff_summary += f"\nFile: {file_path}\n{patch_text}\n"
+                        
+                    except Exception:
                         continue
-                        
-                    patch_text = diff.diff.decode('utf-8', errors='replace')
-                    
-                    if len(patch_text) > 800:
-                        patch_text = patch_text[:800] + "...\n(truncated)"
-                        
-                    diff_summary += f"\nFile: {file_path}\n{patch_text}\n"
-                    
-                except Exception:
-                    continue
+            except git.exc.GitCommandError:
+                diff_summary = "(Diff unavailable: Boundary of shallow clone)"
+            except Exception:
+                diff_summary = "(Diff failed to load)"
         else:
             diff_summary = "(First commit - no diffs)"
 
-        if len(diff_summary) > 2000:
-            diff_summary = diff_summary[:2000] + "...(Diff too long)"
+        if len(diff_summary) > 1500:
+            diff_summary = diff_summary[:1500] + "...(Diff too long)"
 
         full_content = f"""
         Commit: {commit.hexsha}
@@ -63,14 +83,11 @@ def load_git_history(repo_path, branch="main", limit=50):
         {diff_summary}
         """
 
-        history_data.append({
+        yield {
             "hash": commit.hexsha,
             "author": author,
             "date": date,
             "message": message,
             "diff": diff_summary,
-            "files": list(commit.stats.files.keys()),
             "content": full_content 
-        })
-
-    return history_data
+        }
