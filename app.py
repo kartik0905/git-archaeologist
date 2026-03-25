@@ -18,7 +18,7 @@ os.environ["TOKENIZERS_PARALLELISM"] = "false"
 TEMP_REPO_PATH = "./temp_repo_clone"
 CHROMA_PATH = "./chroma_db"
 
-def cleanup_temp_data():
+def cleanup_temp_data(*args, **kwargs) -> None:
     if os.path.exists(TEMP_REPO_PATH):
         try: shutil.rmtree(TEMP_REPO_PATH)
         except: pass
@@ -110,7 +110,7 @@ def reset_and_index(repo_url, commit_limit):
     current_batch_docs = []
     current_batch_meta = []
     
-    total_processed = 0
+    total_processed: int = 0
     
     for commit in load_git_history(TEMP_REPO_PATH):
         current_batch_ids.append(commit["hash"])
@@ -123,7 +123,7 @@ def reset_and_index(repo_url, commit_limit):
                 documents=current_batch_docs, 
                 metadatas=current_batch_meta
             )
-            total_processed += len(current_batch_ids)
+            total_processed += len(current_batch_ids)  # type: ignore
             status_text.info(f"🧠 Indexed {total_processed} commits...")
         
             display_limit = commit_limit if commit_limit > 0 else 2000
@@ -139,7 +139,7 @@ def reset_and_index(repo_url, commit_limit):
             documents=current_batch_docs, 
             metadatas=current_batch_meta
         )
-        total_processed += len(current_batch_ids)
+        total_processed += len(current_batch_ids)  # type: ignore
 
     progress_bar.empty()
     status_text.success(f"✅ Ready! Analyzed {total_processed} commits.")
@@ -165,10 +165,11 @@ with st.sidebar:
     }
     commit_limit = limit_map[depth_option]
 
-    api_key = os.getenv("OPENAI_API_KEY")
+    api_key = os.getenv("GROQ_API_KEY")
     if not api_key:
-        api_key = st.text_input("Enter OpenAI API Key:", type="password")
-        if api_key: os.environ["OPENAI_API_KEY"] = api_key
+        api_key = st.text_input("Enter Groq API Key (Free):", type="password")
+        if api_key: os.environ["GROQ_API_KEY"] = api_key
+        st.markdown("[Get a free Groq API Key here!](https://console.groq.com/keys)", unsafe_allow_html=True)
 
     if st.button("🔍 Analyze Repo"):
         if not api_key: st.error("Need API Key.")
@@ -230,7 +231,10 @@ if prompt := st.chat_input("Ask about code changes..."):
                 for i, doc in enumerate(results['documents'][0]):
                     context_text += f"--- COMMIT {i+1} ---\n{doc}\n\n"
 
-            client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+            client = OpenAI(
+                api_key=os.getenv("GROQ_API_KEY"),
+                base_url="https://api.groq.com/openai/v1"
+            )
             
             full_prompt = f"""
             You are a Senior Technical Auditor. 
@@ -247,7 +251,7 @@ if prompt := st.chat_input("Ask about code changes..."):
             """
             
             stream = client.chat.completions.create(
-                model="gpt-4.1-nano",
+                model="llama-3.3-70b-versatile",
                 messages=[{"role": "user", "content": full_prompt}],
                 stream=True,
             )
