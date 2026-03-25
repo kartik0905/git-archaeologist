@@ -4,7 +4,7 @@
 
 ![Python](https://img.shields.io/badge/Python-3.10%2B-blue)
 ![Streamlit](https://img.shields.io/badge/Streamlit-Web%20UI-red)
-![OpenAI](https://img.shields.io/badge/OpenAI-GPT--4.1--nano-teal)
+![Groq](https://img.shields.io/badge/Groq-LLaMA--3.3--70B-orange)
 ![License](https://img.shields.io/badge/License-MIT-yellow)
 
 Legacy Code Archaeologist is a production-grade **Retrieval-Augmented Generation (RAG)** tool designed to analyze *how* and *why* a codebase evolved over time.  
@@ -14,7 +14,7 @@ Instead of reading static snapshots, it mines **actual Git diffs**, allowing you
 - *“Why was the authentication logic rewritten in 2021?”*  
 - *“When did this API contract change?”*  
 
-Built for scalability, accuracy, and real-world engineering workflows.
+Built for scalability, accuracy, and real-world engineering workflows, now supercharged by Groq's lightning-fast inference engine.
 
 ---
 
@@ -29,8 +29,8 @@ Built for scalability, accuracy, and real-world engineering workflows.
 - Handles massive repositories (Linux, React, Kubernetes) efficiently.
 
 ### 🧠 AI-Powered Q&A
-- Uses **OpenAI GPT-3.5 Turbo** for contextual reasoning.
-- Powered by **LangChain + ChromaDB** for semantic search over commit history.
+- Uses **Groq API (LLaMA-3.3-70B)** for lightning-fast, highly accurate contextual reasoning.
+- Powered by **ChromaDB** for semantic search over commit history.
 
 ### 🕰️ Time Machine Mode
 - Switch between:
@@ -50,13 +50,12 @@ Built for scalability, accuracy, and real-world engineering workflows.
 ## 🧱 Tech Stack
 
 **Backend**
-- Python 3.10+
+- Python 3.12+
 - GitPython (Custom Mining Engine)
-- LangChain
 - ChromaDB (Local Vector Store)
 
 **AI Engine**
-- OpenAI GPT-3.5 Turbo
+- Groq API (`llama-3.3-70b-versatile` via OpenAI compatible endpoint)
 
 **Frontend**
 - Streamlit
@@ -83,7 +82,7 @@ Built for scalability, accuracy, and real-world engineering workflows.
 └──────┬──────────────┘
        ↓
 ┌─────────────────────┐
-│  OpenAI GPT-3.5 API │  ← Reasoning & answers
+│      Groq API       │  ← Lightning-fast LLM reasoning
 └──────┬──────────────┘
        ↓
 ┌─────────────────────┐
@@ -99,10 +98,11 @@ Built for scalability, accuracy, and real-world engineering workflows.
 2. Select:
    - **Fast Mode** → Recent commits only
    - **Deep Mode** → Full historical analysis
-3. Ask natural language questions:
+3. Provide your Free Groq API Key via the UI (if not set in `.env`).
+4. Ask natural language questions:
    - “Why was this function refactored?”
    - “Who changed the authentication logic?”
-4. Export a **PDF audit report** if needed.
+5. Export a **PDF audit report** if needed.
 
 ---
 
@@ -118,11 +118,12 @@ cd git-archaeologist
 ```bash
 pip install -r requirements.txt
 ```
+*(Or use `uv pip install -r requirements.txt` for faster installation)*
 
 ### 3️⃣ Configure environment variables
 Create a `.env` file:
 ```env
-OPENAI_API_KEY=your_api_key_here
+GROQ_API_KEY=your_groq_api_key_here
 ```
 
 ### 4️⃣ Run the application
@@ -138,11 +139,8 @@ streamlit run app.py
 .
 ├── app.py              # Streamlit UI & user interaction
 ├── miner.py            # Core mining engine (diff parsing, batching)
-├── vector_store.py     # ChromaDB integration
-├── prompts/            # LLM prompt templates
-├── utils/              # Helpers & cleanup logic
-├── reports/            # Generated PDF audit reports
-└── requirements.txt
+├── requirements.txt
+└── pyproject.toml
 ```
 
 ---
@@ -152,7 +150,7 @@ streamlit run app.py
 - Designed like a **real production system**, not a demo.
 - Handles **large-scale repositories** efficiently.
 - Solves a *real developer pain point* — understanding legacy code.
-- Built with extensibility in mind (CI analysis, PR reviews, blame tracking).
+- Uses **Groq** to eliminate LLM latency, making log parsing instantaneous.
 
 ---
 
