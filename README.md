@@ -1,5 +1,5 @@
 <h1 align="center">🏛️ Legacy Code Archaeologist</h1>
-> **An AI-powered system that lets you talk to the *history* of any GitHub repository — not just its current code.**
+An AI-powered system that lets you talk to the *history* of any GitHub repository — not just its current code.
 
 ![Python](https://img.shields.io/badge/Python-3.10%2B-blue)
 ![Streamlit](https://img.shields.io/badge/Streamlit-Web%20UI-red)
