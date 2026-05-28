@@ -4,7 +4,7 @@ import streamlit as st
 from chromadb.utils import embedding_functions
 
 from miner import load_git_history
-from utils import cleanup_temp_data, TEMP_REPO_PATH, CHROMA_PATH
+from utils import cleanup_temp_data, TEMP_REPO_PATH, CHROMA_PATH, inject_github_token
 
 BATCH_SIZE = 10
 EMBEDDING_MODEL = "all-MiniLM-L6-v2"
@@ -25,30 +25,36 @@ def get_collection():
     )
 
 
-def _clone_repo(repo_url: str, commit_limit: int, status_text) -> bool:
+def _clone_repo(repo_url: str, commit_limit: int, token: str, status_text) -> bool:
     """Clone repo — shallow if limit set, full otherwise."""
+    
+    auth_url = inject_github_token(repo_url, token)
+    
     try:
         if commit_limit == 0:
             status_text.info(f"⏳ Cloning full history of {repo_url}... this may take a while.")
-            git.Repo.clone_from(repo_url, TEMP_REPO_PATH)
+            git.Repo.clone_from(auth_url, TEMP_REPO_PATH)
         else:
             status_text.info(f"⏳ Shallow cloning {repo_url} (last {commit_limit} commits)...")
-            git.Repo.clone_from(repo_url, TEMP_REPO_PATH, depth=commit_limit)
+            git.Repo.clone_from(auth_url, TEMP_REPO_PATH, depth=commit_limit)
         return True
     except Exception as e:
         status_text.error(f"❌ Failed to clone: {e}")
         return False
 
 
-def _validate_repo(repo_url: str, status_text) -> bool:
+def _validate_repo(repo_url: str, token: str, status_text) -> bool:
     """Check that the URL points to a real, accessible repo."""
     if not repo_url.startswith(("http://", "https://")):
         status_text.error("❌ Invalid URL. Must start with http:// or https://")
         return False
 
     status_text.info("📡 Verifying repository...")
+    
+    auth_url = inject_github_token(repo_url, token)
+    
     try:
-        git.cmd.Git().ls_remote(repo_url)
+        git.cmd.Git().ls_remote(auth_url)
         return True
     except git.exc.GitCommandError as e:
         msg = str(e).lower()
@@ -65,7 +71,7 @@ def _index_commits(commit_limit: int, status_text, progress_bar) -> int:
     """Mine commits from cloned repo and insert into ChromaDB. Returns total indexed."""
     client = chromadb.PersistentClient(path=CHROMA_PATH)
 
-    # Fresh collection every run
+
     try:
         client.delete_collection("git_commits")
     except Exception:
@@ -92,7 +98,7 @@ def _index_commits(commit_limit: int, status_text, progress_bar) -> int:
             progress_bar.progress(min(total / display_limit, 1.0))
             batch_ids, batch_docs, batch_meta = [], [], []
 
-    # Flush remaining
+
     if batch_ids:
         collection.add(ids=batch_ids, documents=batch_docs, metadatas=batch_meta)
         total += len(batch_ids)
@@ -100,7 +106,8 @@ def _index_commits(commit_limit: int, status_text, progress_bar) -> int:
     return total
 
 
-def run_indexing(repo_url: str, commit_limit: int) -> bool:
+
+def run_indexing(repo_url: str, commit_limit: int, token: str = None) -> bool:
     """
     Full pipeline: validate → cleanup → clone → index.
     Returns True on success. Renders its own Streamlit progress UI.
@@ -110,10 +117,10 @@ def run_indexing(repo_url: str, commit_limit: int) -> bool:
     status_text = st.empty()
     progress_bar = st.progress(0)
 
-    if not _validate_repo(repo_url, status_text):
+    if not _validate_repo(repo_url, token, status_text):
         return False
 
-    if not _clone_repo(repo_url, commit_limit, status_text):
+    if not _clone_repo(repo_url, commit_limit, token, status_text):
         return False
 
     status_text.info("⛏️ Mining & indexing commits...")
