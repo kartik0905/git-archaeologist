@@ -1,20 +1,50 @@
 import os
 import shutil
 import time
+from urllib.parse import urlparse
 from fpdf import FPDF
 
 TEMP_REPO_PATH = "./temp_repo_clone"
 CHROMA_PATH = "./chroma_db"
 
 
+def remove_readonly(func, path, excinfo):
+    """Callback for shutil.rmtree to forcefully remove read-only files (like .git objects)."""
+    try:
+        os.chmod(path, os.stat.S_IWRITE)
+        func(path)
+    except Exception:
+        pass
+
 def cleanup_temp_data(*args, **kwargs) -> None:
-    """Remove cloned repo and vector DB from disk."""
-    for path in [TEMP_REPO_PATH, CHROMA_PATH]:
-        if os.path.exists(path):
-            try:
-                shutil.rmtree(path)
-            except Exception as e:
-                print(f"[cleanup] Warning: could not remove {path}: {e}")
+    """Safely remove cloned repo and vector DB from disk."""
+    
+    if os.path.exists(TEMP_REPO_PATH):
+        try:
+            shutil.rmtree(TEMP_REPO_PATH, onerror=remove_readonly)
+        except Exception as e:
+            print(f"[cleanup] Warning: could not entirely remove {TEMP_REPO_PATH}: {e}")
+
+    if os.path.exists(CHROMA_PATH):
+        try:
+            shutil.rmtree(CHROMA_PATH, ignore_errors=True) 
+        except Exception as e:
+            print(f"[cleanup] Warning: could not entirely remove {CHROMA_PATH}: {e}")
+        
+def inject_github_token(repo_url: str, token: str) -> str:
+    """Safely injects a GitHub Personal Access Token into an HTTPS URL."""
+    if not token:
+        return repo_url
+        
+    parsed = urlparse(repo_url)
+    
+    if parsed.scheme != "https":
+        raise ValueError("GitHub Token authentication requires an HTTPS repository URL.")
+        
+    netloc = parsed.netloc.split('@')[-1]
+    
+    authenticated_netloc = f"{token}@{netloc}"
+    return parsed._replace(netloc=authenticated_netloc).geturl()
 
 
 def create_pdf(repo_url: str, messages: list) -> bytes:
@@ -23,11 +53,9 @@ def create_pdf(repo_url: str, messages: list) -> bytes:
     pdf.add_page()
     pdf.set_auto_page_break(auto=True, margin=15)
 
-    # Title
     pdf.set_font("Arial", "B", 16)
     pdf.cell(200, 10, "Legacy Code Archaeologist - Audit Report", ln=True, align="C")
 
-    # Metadata
     pdf.set_font("Arial", "I", 10)
     pdf.cell(200, 10, f"Repository: {repo_url}", ln=True, align="C")
     pdf.cell(200, 10, f"Date: {time.strftime('%Y-%m-%d %H:%M:%S')}", ln=True, align="C")
