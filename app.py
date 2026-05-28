@@ -1,262 +1,143 @@
-import streamlit as st
 import os
-import shutil
-import git
-import chromadb
 import atexit
-import time
-from chromadb.utils import embedding_functions
+import streamlit as st
 from dotenv import load_dotenv
-from openai import OpenAI
-from miner import load_git_history
-from fpdf import FPDF
 
-st.set_page_config(page_title="Legacy Code Archaeologist", page_icon="🏛️", layout="wide")
+from indexer import run_indexing
+from qa import ask
+from utils import cleanup_temp_data, create_pdf
+
+# ── Setup ──────────────────────────────────────────────────────────────────────
+
 load_dotenv()
 os.environ["TOKENIZERS_PARALLELISM"] = "false"
-
-TEMP_REPO_PATH = "./temp_repo_clone"
-CHROMA_PATH = "./chroma_db"
-
-def cleanup_temp_data(*args, **kwargs) -> None:
-    if os.path.exists(TEMP_REPO_PATH):
-        try: shutil.rmtree(TEMP_REPO_PATH)
-        except: pass
-    if os.path.exists(CHROMA_PATH):
-        try: shutil.rmtree(CHROMA_PATH)
-        except: pass
-
 atexit.register(cleanup_temp_data)
 
-def create_pdf(repo_url, messages):
-    pdf = FPDF()
-    pdf.add_page()
-    pdf.set_auto_page_break(auto=True, margin=15)
-    pdf.set_font("Arial", "B", 16)
-    pdf.cell(200, 10, "Legacy Code Archaeologist - Audit Report", ln=True, align="C")
-    pdf.set_font("Arial", "I", 10)
-    pdf.cell(200, 10, f"Repository: {repo_url}", ln=True, align="C")
-    pdf.cell(200, 10, f"Date: {time.strftime('%Y-%m-%d %H:%M:%S')}", ln=True, align="C")
-    pdf.ln(10)
-    
-    for msg in messages:
-        role = "User" if msg["role"] == "user" else "Archaeologist"
-        pdf.set_font("Arial", "B", 12)
-        pdf.set_text_color(0, 51, 102)
-        pdf.cell(0, 10, f"{role}:", ln=True)
-        pdf.set_font("Arial", "", 11)
-        pdf.set_text_color(0, 0, 0)
-        clean_content = msg["content"].encode('latin-1', 'replace').decode('latin-1')
-        pdf.multi_cell(0, 7, clean_content)
-        pdf.ln(5)
-        pdf.set_draw_color(200, 200, 200)
-        pdf.line(10, pdf.get_y(), 200, pdf.get_y())
-        pdf.ln(5)
-    return pdf.output(dest="S").encode("latin-1")
+st.set_page_config(
+    page_title="Legacy Code Archaeologist",
+    page_icon="🏛️",
+    layout="wide"
+)
 
-def reset_and_index(repo_url, commit_limit):
-    cleanup_temp_data()
-    status_text = st.empty()
-    progress_bar = st.progress(0)
+# ── Session state defaults ─────────────────────────────────────────────────────
 
-    if not repo_url.startswith(("http://", "https://")):
-        status_text.error("❌ Invalid URL. Please start with http:// or https://")
-        return False
+if "repo_loaded" not in st.session_state:
+    st.session_state.repo_loaded = False
+if "messages" not in st.session_state:
+    st.session_state.messages = []
+if "repo_url" not in st.session_state:
+    st.session_state.repo_url = ""
 
-    status_text.info(f"📡 Verifying repository existence...")
-    try:
-        git.cmd.Git().ls_remote(repo_url)
-    except git.exc.GitCommandError as e:
-        error_msg = str(e).lower()
-        if "not found" in error_msg:
-            status_text.error("❌ Repository not found. Please check the URL.")
-        elif "authentication" in error_msg or "could not read password" in error_msg:
-            status_text.error("🔒 Repository is Private. Access denied.")
-        else:
-            status_text.error(f"❌ Invalid Repository URL: {e}")
-        return False
-    
-    if commit_limit == 0:
-        status_text.info(f"⏳ Cloning {repo_url} (FULL HISTORY)... This may take a while.")
-        try:
-            git.Repo.clone_from(repo_url, TEMP_REPO_PATH)
-        except Exception as e:
-            status_text.error(f"Failed to clone: {e}")
-            return False
-    else:
-        status_text.info(f"⏳ Shallow cloning {repo_url} (Last {commit_limit} commits)...")
-        try:
-            git.Repo.clone_from(repo_url, TEMP_REPO_PATH, depth=commit_limit)
-        except Exception as e:
-            status_text.error(f"Failed to clone: {e}")
-            return False
-
-    status_text.info("⛏️ Mining & Indexing in batches...")
-    
-    chroma_client = chromadb.PersistentClient(path=CHROMA_PATH)
-    try: chroma_client.delete_collection("git_commits")
-    except: pass 
-    
-    sentence_transformer_ef = embedding_functions.SentenceTransformerEmbeddingFunction(
-        model_name="all-MiniLM-L6-v2"
-    )
-    collection = chroma_client.get_or_create_collection(
-        name="git_commits",
-        embedding_function=sentence_transformer_ef
-    )
-
-    BATCH_SIZE = 10
-    current_batch_ids = []
-    current_batch_docs = []
-    current_batch_meta = []
-    
-    total_processed: int = 0
-    
-    for commit in load_git_history(TEMP_REPO_PATH):
-        current_batch_ids.append(commit["hash"])
-        current_batch_docs.append(commit["content"])
-        current_batch_meta.append({"author": commit["author"], "date": commit["date"]})
-        
-        if len(current_batch_ids) >= BATCH_SIZE:
-            collection.add(
-                ids=current_batch_ids, 
-                documents=current_batch_docs, 
-                metadatas=current_batch_meta
-            )
-            total_processed += len(current_batch_ids)  # type: ignore
-            status_text.info(f"🧠 Indexed {total_processed} commits...")
-        
-            display_limit = commit_limit if commit_limit > 0 else 2000
-            progress_bar.progress(min(total_processed / display_limit, 1.0))
-            
-            current_batch_ids = []
-            current_batch_docs = []
-            current_batch_meta = []
-
-    if current_batch_ids:
-        collection.add(
-            ids=current_batch_ids, 
-            documents=current_batch_docs, 
-            metadatas=current_batch_meta
-        )
-        total_processed += len(current_batch_ids)  # type: ignore
-
-    progress_bar.empty()
-    status_text.success(f"✅ Ready! Analyzed {total_processed} commits.")
-    return True
+# ── Sidebar ────────────────────────────────────────────────────────────────────
 
 with st.sidebar:
-    st.title("🏛️ Archaeologist Scale")
-    st.markdown("Optimized for **Big Repos**.")
-    repo_url = st.text_input("GitHub Repo URL:", value="https://github.com/pallets/flask.git")
-    
+    st.title("🏛️ Git Archaeologist")
+    st.markdown("Turn Git history into a searchable knowledge base.")
+    st.divider()
+
+    repo_url = st.text_input(
+        "GitHub Repo URL",
+        value="https://github.com/pallets/flask.git",
+        placeholder="https://github.com/owner/repo.git"
+    )
+
     st.markdown("### 🕰️ Excavation Depth")
     depth_option = st.select_slider(
         "How far back should we dig?",
         options=["Recent (100)", "Quarterly (500)", "Yearly (2000)", "Everything (All)"],
         value="Recent (100)"
     )
-    
     limit_map = {
         "Recent (100)": 100,
         "Quarterly (500)": 500,
         "Yearly (2000)": 2000,
-        "Everything (All)": 0
+        "Everything (All)": 0,
     }
     commit_limit = limit_map[depth_option]
 
+    # API key — env var takes priority, fallback to UI input
     api_key = os.getenv("GROQ_API_KEY")
     if not api_key:
-        api_key = st.text_input("Enter Groq API Key (Free):", type="password")
-        if api_key: os.environ["GROQ_API_KEY"] = api_key
-        st.markdown("[Get a free Groq API Key here!](https://console.groq.com/keys)", unsafe_allow_html=True)
+        api_key = st.text_input("Groq API Key", type="password", placeholder="gsk_...")
+        if api_key:
+            os.environ["GROQ_API_KEY"] = api_key
+        st.markdown(
+            "[Get a free Groq API key →](https://console.groq.com/keys)",
+            unsafe_allow_html=True
+        )
 
-    if st.button("🔍 Analyze Repo"):
-        if not api_key: st.error("Need API Key.")
+    st.divider()
+
+    if st.button("🔍 Analyze Repo", use_container_width=True):
+        if not api_key:
+            st.error("Please provide a Groq API key.")
+        elif not repo_url.strip():
+            st.error("Please enter a repository URL.")
         else:
             with st.spinner("Initializing..."):
-                if reset_and_index(repo_url, commit_limit):
-                    st.session_state["repo_loaded"] = True
+                success = run_indexing(repo_url.strip(), commit_limit)
+                if success:
+                    st.session_state.repo_loaded = True
+                    st.session_state.repo_url = repo_url.strip()
                     st.session_state.messages = []
 
     st.divider()
 
-    if "messages" in st.session_state and st.session_state.messages:
-        pdf_bytes = create_pdf(repo_url, st.session_state.messages)
-        st.download_button("📄 Download PDF Report", pdf_bytes, "audit_report.pdf", "application/pdf")
+    # Actions (only show when a repo is loaded)
+    if st.session_state.repo_loaded:
+        col1, col2 = st.columns(2)
 
-    st.divider()
-    
-    col1, col2 = st.columns(2)
-    with col1:
-        if st.button("Clear Chat"):
-            st.session_state.messages = []
-            st.rerun()
-    with col2:
-        if st.button("🗑️ Reset"):
-            cleanup_temp_data()
-            st.session_state["repo_loaded"] = False
-            st.rerun()
+        with col1:
+            if st.button("🗑️ Clear Chat", use_container_width=True):
+                st.session_state.messages = []
+                st.rerun()
 
-st.title("Chat with Code History")
+        with col2:
+            if st.button("↺ Reset", use_container_width=True):
+                cleanup_temp_data()
+                st.session_state.repo_loaded = False
+                st.session_state.messages = []
+                st.rerun()
 
-if not st.session_state.get("repo_loaded"):
-    st.info("👈 Enter a GitHub URL to start.")
+        if st.session_state.messages:
+            pdf_bytes = create_pdf(st.session_state.repo_url, st.session_state.messages)
+            st.download_button(
+                "📄 Download PDF Report",
+                data=pdf_bytes,
+                file_name="audit_report.pdf",
+                mime="application/pdf",
+                use_container_width=True
+            )
+
+# ── Main chat area ─────────────────────────────────────────────────────────────
+
+st.title("🏛️ Chat with Code History")
+
+if not st.session_state.repo_loaded:
+    st.info("👈 Paste a GitHub URL in the sidebar and click **Analyze Repo** to get started.")
     st.stop()
 
-if "messages" not in st.session_state: st.session_state.messages = []
-
+# Render existing messages
 for message in st.session_state.messages:
     with st.chat_message(message["role"]):
         st.markdown(message["content"])
 
-if prompt := st.chat_input("Ask about code changes..."):
+# Handle new input
+if prompt := st.chat_input("Ask anything about the code history..."):
+    # Show user message immediately
     st.session_state.messages.append({"role": "user", "content": prompt})
-    with st.chat_message("user"): st.markdown(prompt)
+    with st.chat_message("user"):
+        st.markdown(prompt)
 
+    # Stream assistant response
     with st.chat_message("assistant"):
         try:
-            chroma_client = chromadb.PersistentClient(path=CHROMA_PATH)
-            sentence_transformer_ef = embedding_functions.SentenceTransformerEmbeddingFunction(
-                model_name="all-MiniLM-L6-v2"
-            )
-            collection = chroma_client.get_collection(
-                name="git_commits",
-                embedding_function=sentence_transformer_ef
-            )
-            results = collection.query(query_texts=[prompt], n_results=3)
-            
-            context_text = ""
-            if results['documents']:
-                for i, doc in enumerate(results['documents'][0]):
-                    context_text += f"--- COMMIT {i+1} ---\n{doc}\n\n"
-
-            client = OpenAI(
-                api_key=os.getenv("GROQ_API_KEY"),
-                base_url="https://api.groq.com/openai/v1"
-            )
-            
-            full_prompt = f"""
-            You are a Senior Technical Auditor. 
-            You have access to the COMMIT MESSAGES and the ACTUAL CODE DIFFS.
-            
-            Use the 'Code Changes' section in the history to answer specific questions about what code was modified.
-            If you see a diff like '- timeout = 5' and '+ timeout = 10', explicitly mention that the value changed from 5 to 10.
-            
-            --- HISTORY DATA ---
-            {context_text}
-            
-            --- QUESTION ---
-            {prompt}
-            """
-            
-            stream = client.chat.completions.create(
-                model="llama-3.3-70b-versatile",
-                messages=[{"role": "user", "content": full_prompt}],
-                stream=True,
-            )
+            # Pass history EXCLUDING the current prompt (qa.py appends it internally)
+            history_so_far = st.session_state.messages[:-1]
+            stream = ask(prompt, history_so_far)
             response = st.write_stream(stream)
             st.session_state.messages.append({"role": "assistant", "content": response})
-            
         except Exception as e:
-            st.error(f"Error: {e}")
+            error_msg = f"⚠️ Error: {e}"
+            st.error(error_msg)
+            st.session_state.messages.append({"role": "assistant", "content": error_msg})
