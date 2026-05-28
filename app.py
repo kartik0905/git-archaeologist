@@ -30,15 +30,24 @@ if "repo_url" not in st.session_state:
 
 # ── Sidebar ────────────────────────────────────────────────────────────────────
 
+
 with st.sidebar:
     st.title("🏛️ Git Archaeologist")
     st.markdown("Turn Git history into a searchable knowledge base.")
     st.divider()
 
+    st.markdown("### 🔌 Repository Connection")
     repo_url = st.text_input(
         "GitHub Repo URL",
         value="https://github.com/pallets/flask.git",
         placeholder="https://github.com/owner/repo.git"
+    )
+
+
+    github_token = st.text_input(
+        "GitHub PAT (Private Repos)",
+        type="password",
+        help="Optional. Required for private repositories (needs 'repo' scope). \n\n🔒 **Security Note:** Your token is never saved to disk. It is strictly held in memory during the cloning process, and all temporary repository files are aggressively wiped from the server when you click Reset or close the app."
     )
 
     st.markdown("### 🕰️ Excavation Depth")
@@ -55,7 +64,6 @@ with st.sidebar:
     }
     commit_limit = limit_map[depth_option]
 
-    # API key — env var takes priority, fallback to UI input
     api_key = os.getenv("GROQ_API_KEY")
     if not api_key:
         api_key = st.text_input("Groq API Key", type="password", placeholder="gsk_...")
@@ -75,7 +83,7 @@ with st.sidebar:
             st.error("Please enter a repository URL.")
         else:
             with st.spinner("Initializing..."):
-                success = run_indexing(repo_url.strip(), commit_limit)
+                success = run_indexing(repo_url.strip(), commit_limit, token=github_token)
                 if success:
                     st.session_state.repo_loaded = True
                     st.session_state.repo_url = repo_url.strip()
@@ -83,8 +91,32 @@ with st.sidebar:
 
     st.divider()
 
-    # Actions (only show when a repo is loaded)
-    if st.session_state.repo_loaded:
+
+    if st.session_state.get("repo_loaded", False):
+        
+
+        st.markdown("### 🎯 Search Filters")
+        st.session_state.author_filter = st.text_input(
+            "Author Name", 
+            placeholder="e.g., kartik0905",
+            help="Exact match required."
+        )
+        
+        date_filter = st.date_input(
+            "Date Range", 
+            value=(), 
+            help="Filter commits between two dates."
+        )
+        
+        if len(date_filter) == 2:
+            st.session_state.start_date = date_filter[0].strftime("%Y-%m-%d")
+            st.session_state.end_date = date_filter[1].strftime("%Y-%m-%d")
+        else:
+            st.session_state.start_date = None
+            st.session_state.end_date = None
+            
+        st.divider()
+
         col1, col2 = st.columns(2)
 
         with col1:
