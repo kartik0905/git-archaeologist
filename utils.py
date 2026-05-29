@@ -60,5 +60,12 @@ def create_pdf(repo_url: str, messages: list) -> bytes:
         pdf.set_draw_color(200, 200, 200)
         pdf.line(10, pdf.get_y(), 200, pdf.get_y())
         pdf.ln(5)
-    output = pdf.output()
-    return bytes(output) if isinstance(output, bytearray) else output
+        output = pdf.output(dest="S")
+        if isinstance(output, bytearray):
+            return bytes(output)
+        elif isinstance(output, bytes):
+            return output
+        elif output:
+            return output.encode("latin-1")
+        else:
+            return b""
