@@ -27,9 +27,14 @@ if "messages" not in st.session_state:
     st.session_state.messages = []
 if "repo_url" not in st.session_state:
     st.session_state.repo_url = ""
+if "author_filter" not in st.session_state:
+    st.session_state.author_filter = ""
+if "start_date" not in st.session_state:
+    st.session_state.start_date = None
+if "end_date" not in st.session_state:
+    st.session_state.end_date = None
 
 # ── Sidebar ────────────────────────────────────────────────────────────────────
-
 
 with st.sidebar:
     st.title("🏛️ Git Archaeologist")
@@ -42,7 +47,6 @@ with st.sidebar:
         value="https://github.com/pallets/flask.git",
         placeholder="https://github.com/owner/repo.git"
     )
-
 
     github_token = st.text_input(
         "GitHub PAT (Private Repos)",
@@ -91,44 +95,56 @@ with st.sidebar:
 
     st.divider()
 
-
     if st.session_state.get("repo_loaded", False):
-        
 
         st.markdown("### 🎯 Search Filters")
-        st.session_state.author_filter = st.text_input(
-            "Author Name", 
-            placeholder="e.g., kartik0905",
-            help="Exact match required."
+        st.caption("Narrow the search scope — leave blank to search all commits.")
+
+        author_filter = st.text_input(
+            "Filter by Author",
+            value=st.session_state.author_filter,
+            placeholder="e.g., Armin Ronacher",
+            help="Exact match on the Git commit author name."
         )
-        
+        st.session_state.author_filter = author_filter
+
         date_filter = st.date_input(
-            "Date Range", 
-            value=(), 
-            help="Filter commits between two dates."
+            "Filter by Date Range",
+            value=(),
+            help="Select a start and end date to narrow commits."
         )
-        
+
         if len(date_filter) == 2:
             st.session_state.start_date = date_filter[0].strftime("%Y-%m-%d")
             st.session_state.end_date = date_filter[1].strftime("%Y-%m-%d")
         else:
             st.session_state.start_date = None
             st.session_state.end_date = None
-            
+
+        # Show active filter badge so the user knows filters are on
+        active = []
+        if st.session_state.author_filter:
+            active.append(f"👤 `{st.session_state.author_filter}`")
+        if st.session_state.start_date and st.session_state.end_date:
+            active.append(f"📅 `{st.session_state.start_date}` → `{st.session_state.end_date}`")
+        if active:
+            st.success("Active filters: " + "  ·  ".join(active))
+
         st.divider()
 
         col1, col2 = st.columns(2)
-
         with col1:
             if st.button("🗑️ Clear Chat", use_container_width=True):
                 st.session_state.messages = []
                 st.rerun()
-
         with col2:
             if st.button("↺ Reset", use_container_width=True):
                 cleanup_temp_data()
                 st.session_state.repo_loaded = False
                 st.session_state.messages = []
+                st.session_state.author_filter = ""
+                st.session_state.start_date = None
+                st.session_state.end_date = None
                 st.rerun()
 
         if st.session_state.messages:
@@ -156,17 +172,20 @@ for message in st.session_state.messages:
 
 # Handle new input
 if prompt := st.chat_input("Ask anything about the code history..."):
-    # Show user message immediately
     st.session_state.messages.append({"role": "user", "content": prompt})
     with st.chat_message("user"):
         st.markdown(prompt)
 
-    # Stream assistant response
     with st.chat_message("assistant"):
         try:
-            # Pass history EXCLUDING the current prompt (qa.py appends it internally)
             history_so_far = st.session_state.messages[:-1]
-            stream = ask(prompt, history_so_far)
+            stream = ask(
+                prompt,
+                history_so_far,
+                author=st.session_state.author_filter or None,
+                start_date=st.session_state.start_date,
+                end_date=st.session_state.end_date,
+            )
             response = st.write_stream(stream)
             st.session_state.messages.append({"role": "assistant", "content": response})
         except Exception as e:
