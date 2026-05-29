@@ -4,14 +4,47 @@ from indexer import get_collection
 
 # How many past messages to include for conversation context
 HISTORY_WINDOW = 5
-# How many commits to retrieve from vector DB per query
-TOP_K = 5
+# How many commits to fetch from ChromaDB before reranking
+RETRIEVAL_K = 10
+# How many to pass to the LLM after reranking
+RERANK_TOP_N = 3
+
+# Lazy-loaded reranker — None until first query
+_reranker = None
+
+
+def _get_reranker():
+    """
+    Lazy-load the cross-encoder reranker on first use.
+    Downloads ~85MB on first call, then cached by sentence-transformers.
+    """
+    global _reranker
+    if _reranker is None:
+        from sentence_transformers import CrossEncoder
+        _reranker = CrossEncoder("cross-encoder/ms-marco-MiniLM-L-6-v2")
+    return _reranker
+
+
+def _rerank(query: str, docs: list[str]) -> list[str]:
+    """
+    Score each (query, doc) pair with the cross-encoder.
+    Returns docs sorted by relevance score, top RERANK_TOP_N only.
+    """
+    if not docs:
+        return docs
+
+    reranker = _get_reranker()
+    pairs = [(query, doc) for doc in docs]
+    scores = reranker.predict(pairs)
+
+    # Sort by score descending, keep top N
+    ranked = sorted(zip(scores, docs), key=lambda x: x[0], reverse=True)
+    return [doc for _, doc in ranked[:RERANK_TOP_N]]
 
 
 def _build_where_clause(author: str = None, start_date: str = None, end_date: str = None) -> dict | None:
     """
     Build a ChromaDB `where` clause from optional filters.
-    ChromaDB supports $and, $eq, $gte, $lte operators.
     Returns None if no filters are active.
     """
     conditions = []
@@ -23,7 +56,6 @@ def _build_where_clause(author: str = None, start_date: str = None, end_date: st
         conditions.append({"date": {"$gte": start_date}})
 
     if end_date:
-        # Append end-of-day so the full end date is included
         conditions.append({"date": {"$lte": end_date + " 23:59:59"}})
 
     if not conditions:
@@ -40,9 +72,7 @@ def _build_context(
     end_date: str = None,
 ) -> tuple[str, bool]:
     """
-    Retrieve the top-K most relevant commits from ChromaDB.
-    Applies metadata filters if provided.
-    Returns (context_string, filters_were_active).
+    Retrieve top-K commits from ChromaDB, rerank, return top-N as context string.
     """
     collection = get_collection()
     where = _build_where_clause(author, start_date, end_date)
@@ -52,21 +82,24 @@ def _build_context(
         if where:
             results = collection.query(
                 query_texts=[query],
-                n_results=TOP_K,
+                n_results=RETRIEVAL_K,
                 where=where
             )
         else:
-            results = collection.query(query_texts=[query], n_results=TOP_K)
+            results = collection.query(query_texts=[query], n_results=RETRIEVAL_K)
     except Exception:
-        # ChromaDB throws if the where clause matches 0 documents
-        # Fall back to unfiltered so the user gets an honest "no results" answer
-        results = collection.query(query_texts=[query], n_results=TOP_K)
-        filters_active = False  # signal to caller that filters were dropped
+        results = collection.query(query_texts=[query], n_results=RETRIEVAL_K)
+        filters_active = False
+
+    docs = results["documents"][0] if results["documents"] else []
+
+    # Rerank — narrows RETRIEVAL_K → RERANK_TOP_N
+    reranked_docs = _rerank(query, docs)
 
     context = ""
-    if results["documents"]:
-        for i, doc in enumerate(results["documents"][0]):
-            context += f"--- COMMIT {i + 1} ---\n{doc}\n\n"
+    for i, doc in enumerate(reranked_docs):
+        context += f"--- COMMIT {i + 1} ---\n{doc}\n\n"
+
     return context, filters_active
 
 
@@ -79,11 +112,7 @@ def _build_messages(
     end_date: str = None,
     filters_active: bool = False,
 ) -> list:
-    """
-    Construct the full message list for the LLM.
-    Includes active filter context so the model knows the scope.
-    """
-    # Build a filter summary line for the system prompt
+    """Construct the full message list for the LLM."""
     filter_lines = []
     if filters_active:
         if author:
@@ -112,7 +141,6 @@ Rules:
 
     messages = [{"role": "system", "content": system_prompt}]
 
-    # Inject the last N turns of conversation for multi-turn awareness
     recent_history = history[-(HISTORY_WINDOW * 2):]
     for msg in recent_history:
         if msg["role"] in ("user", "assistant"):
@@ -135,17 +163,9 @@ def ask(
     end_date: str = None,
 ):
     """
-    Query the RAG pipeline with optional metadata filters.
+    Query the RAG pipeline with reranking and optional metadata filters.
 
-    Args:
-        query:      The user's current question.
-        history:    Full chat history so far (current query NOT included).
-        author:     Optional exact author name filter.
-        start_date: Optional ISO date string 'YYYY-MM-DD'.
-        end_date:   Optional ISO date string 'YYYY-MM-DD'.
-
-    Returns:
-        A streaming generator for st.write_stream.
+    Pipeline: ChromaDB (top 10) → CrossEncoder reranker → top 3 → Groq LLM
     """
     api_key = os.getenv("GROQ_API_KEY")
     if not api_key:
