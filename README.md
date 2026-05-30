@@ -41,6 +41,13 @@ A RAG-based tool that lets you query the **history** of any Git repository in pl
 
 ---
 
+## Demo
+
+https://github.com/user-attachments/assets/8e2e7c88-7425-4a7b-bdcf-c871f8e55591
+
+
+---
+
 ## Key engineering decisions
 
 **Two-stage retrieval (ChromaDB + reranker)**
