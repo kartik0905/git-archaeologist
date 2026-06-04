@@ -1,6 +1,7 @@
 import os
 from openai import OpenAI
 from indexer import get_collection
+from functools import lru_cache
 
 # How many past messages to include for conversation context
 HISTORY_WINDOW = 5
@@ -9,20 +10,15 @@ RETRIEVAL_K = 10
 # How many to pass to the LLM after reranking
 RERANK_TOP_N = 3
 
-# Lazy-loaded reranker — None until first query
-_reranker = None
 
-
+@lru_cache(maxsize=1)
 def _get_reranker():
     """
     Lazy-load the cross-encoder reranker on first use.
     Downloads ~85MB on first call, then cached by sentence-transformers.
     """
-    global _reranker
-    if _reranker is None:
-        from sentence_transformers import CrossEncoder
-        _reranker = CrossEncoder("cross-encoder/ms-marco-MiniLM-L-6-v2")
-    return _reranker
+    from sentence_transformers import CrossEncoder
+    return CrossEncoder("cross-encoder/ms-marco-MiniLM-L-6-v2")
 
 
 def _rerank(query: str, docs: list[str]) -> list[str]:
@@ -172,6 +168,11 @@ def ask(
         raise ValueError("GROQ_API_KEY is not set.")
 
     context, filters_active = _build_context(query, author, start_date, end_date)
+
+    MAX_CONTEXT_CHARS = 12000
+    if len(context) > MAX_CONTEXT_CHARS:
+        context = context[:MAX_CONTEXT_CHARS] + "\n...(context truncated)"
+        
     messages = _build_messages(
         query, context, history,
         author=author,
