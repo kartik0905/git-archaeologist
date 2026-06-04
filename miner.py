@@ -33,13 +33,12 @@ def load_git_history(repo_path: str, branch: str = "main", limit=None):
     print(f"⛏️  Mining repository: {repo_path}...")
 
     # Fall back to master if main doesn't exist
-    target_branch = branch
     try:
-        repo.git.rev_parse("--verify", branch)
-    except Exception:
-        target_branch = "master"
+        target_branch = repo.head.reference.name
+    except TypeError:
+        target_branch = None
 
-    commits = repo.iter_commits(target_branch, max_count=limit)
+    commits = repo.iter_commits(target_branch, max_count=limit) if target_branch else repo.iter_commits(max_count=limit)
 
     for commit in commits:
         message = commit.message.strip()
