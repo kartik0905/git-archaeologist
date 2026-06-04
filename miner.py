@@ -44,6 +44,7 @@ def load_git_history(repo_path: str, branch: str = "main", limit=None):
         message = commit.message.strip()
         author = commit.author.name
         date = datetime.fromtimestamp(commit.committed_date).strftime('%Y-%m-%d %H:%M:%S')
+        timestamp = int(commit.committed_date)
         diff_summary = ""
 
         if commit.parents:
@@ -97,6 +98,7 @@ Message: {message}
             "hash": commit.hexsha,
             "author": author,
             "date": date,
+            "timestamp": timestamp,
             "message": message,
             "diff": diff_summary,
             "content": full_content,
