@@ -12,43 +12,43 @@ A RAG-based tool that lets you query the **history** of any Git repository in pl
 
 ## Architecture
 
-```
-┌─────────────────┐     ┌─────────────────────┐     ┌──────────────────────┐
-│   Git Repo URL  │────▶│     indexer.py       │────▶│      ChromaDB        │
-│ (public/private)│     │ Clone → Parse Diffs  │     │  Commit Embeddings   │
-└─────────────────┘     │ Batch → Embed        │     │  + Metadata          │
-                        └─────────────────────┘     └──────────┬───────────┘
-                                                               │
-                        ┌──────────────────────────────────────┘
-                        ▼
- ┌────────────┐   Step 1: Retrieve    ┌──────────────────────────────────┐
- │ User Query │──────────────────────▶│ ChromaDB — top 10 by similarity  │
- │            │                       └──────────────┬───────────────────┘
- │            │                                      │
- │            │   Step 2: Rerank      ┌──────────────▼───────────────────┐
- │            │──────────────────────▶│ Cross-Encoder — scored, top 3    │
- │            │                       └──────────────┬───────────────────┘
- │            │                                      │
- │            │   Step 3: Generate    ┌──────────────▼───────────────────┐
- │            │──────────────────────▶│ Groq LLM (llama-3.3-70b)         │
- └────────────┘   + chat history      │ + diff context + active filters  │
-                  + metadata filters  └──────────────┬───────────────────┘
-                                                     │
-                                                     ▼
-                                          Streamed answer
-                                          with commit citations
+```mermaid
+graph TD
+    A[User / Browser] -->|Paste repo URL + question| B[Streamlit UI - app.py]
+    B -->|run_indexing| C[indexer.py]
+
+    subgraph Indexing Pipeline
+        C -->|inject PAT via urlparse| D[Git Repo - public or private]
+        D -->|raw commits + diffs| E[miner.py - generator]
+        E -->|hunk-chunked commit docs| F[(ChromaDB - Vector Store)]
+    end
+
+    B -->|ask query + history + filters| G[qa.py]
+
+    subgraph Query Pipeline
+        G -->|rewrite follow-up with history| H[Groq LLM - Query Rewriter]
+        H -->|standalone search query| I[ChromaDB - top 10 by similarity]
+        I -->|author or timestamp filter| I
+        I -->|candidate commits| J[CrossEncoder - ms-marco-MiniLM-L-6-v2]
+        J -->|top 3 reranked commits| K[Groq LLM - llama-3.3-70b-versatile]
+    end
+
+    K -->|streamed answer with citations| B
+    B -->|render response| A
+    B -->|on request| L[PDF Audit Report]
 ```
 
 ---
 
 ## Demo
 
-https://github.com/user-attachments/assets/8e2e7c88-7425-4a7b-bdcf-c871f8e55591
-
 
 ---
 
 ## Key engineering decisions
+
+**Query rewriting**
+Follow-up questions like "who worked on it?" are rewritten into standalone search queries before hitting ChromaDB. The LLM uses conversation history to resolve vague references — so retrieval is context-aware, not just keyword-based.
 
 **Two-stage retrieval (ChromaDB + reranker)**
 Pure vector similarity returns commits that *look* related. The cross-encoder (`ms-marco-MiniLM-L-6-v2`) re-scores each result against your exact question and keeps only the top 3. Precision over recall.
@@ -56,8 +56,8 @@ Pure vector similarity returns commits that *look* related. The cross-encoder (`
 **Hunk-based diff chunking**
 Diffs are split at `@@` boundaries, not truncated at a character limit. The LLM sees complete, meaningful code hunks — so it can say "the value changed from 5 to 10" rather than a vague summary.
 
-**Metadata filtering**
-Author name and date range filters are pushed down to ChromaDB `where` clauses — the reranker only sees commits that already match your filter.
+**Timestamp-based metadata filtering**
+Author and date range filters are pushed down to ChromaDB `where` clauses using Unix timestamps for accurate numeric comparison. If a filter returns no commits, the tool says so explicitly instead of silently falling back to unfiltered results.
 
 **Multi-turn conversation**
 Last 5 turns of chat history are injected into every LLM call. Follow-up questions work without repeating context.
@@ -89,7 +89,7 @@ The commit iterator is a Python generator. Shallow cloning (`--depth`) keeps fet
 ```
 ├── app.py          # Streamlit UI
 ├── indexer.py      # Clone + batch-index into ChromaDB
-├── qa.py           # Retrieval → reranking → LLM call
+├── qa.py           # Query rewriting → Retrieval → reranking → LLM call
 ├── miner.py        # Generator-based diff parser
 ├── utils.py        # PDF export, cleanup, token injection
 └── tests/          # 49 tests, no external services required
@@ -113,10 +113,10 @@ streamlit run app.py
 
 ## Known limitations
 
-- Chat history is passed to the LLM but not used to rewrite ChromaDB queries. Vague follow-ups like *"what else did they change?"* may retrieve different commits than expected.
+- Shallow clones may miss commits outside the selected depth window.
 - Author filtering requires an exact Git config name match.
 - Reranker runs on CPU — adds ~1–2 seconds per query on large result sets.
 
 ---
 
-## Build by Kartik Garg
+## Built by Kartik Garg
