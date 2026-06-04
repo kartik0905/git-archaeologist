@@ -2,6 +2,7 @@ import os
 from openai import OpenAI
 from indexer import get_collection
 from functools import lru_cache
+from datetime import datetime
 
 # How many past messages to include for conversation context
 HISTORY_WINDOW = 5
@@ -33,32 +34,64 @@ def _rerank(query: str, docs: list[str]) -> list[str]:
     pairs = [(query, doc) for doc in docs]
     scores = reranker.predict(pairs)
 
-    # Sort by score descending, keep top N
     ranked = sorted(zip(scores, docs), key=lambda x: x[0], reverse=True)
     return [doc for _, doc in ranked[:RERANK_TOP_N]]
 
 
-def _build_where_clause(author: str = None, start_date: str = None, end_date: str = None) -> dict | None:
-    """
-    Build a ChromaDB `where` clause from optional filters.
-    Returns None if no filters are active.
-    """
+def _build_where_clause(author=None, start_date=None, end_date=None):
     conditions = []
 
     if author and author.strip():
         conditions.append({"author": {"$eq": author.strip()}})
 
     if start_date:
-        conditions.append({"date": {"$gte": start_date}})
+        ts = int(datetime.strptime(start_date, "%Y-%m-%d").timestamp())
+        conditions.append({"timestamp": {"$gte": ts}})
 
     if end_date:
-        conditions.append({"date": {"$lte": end_date + " 23:59:59"}})
+        ts = int(datetime.strptime(end_date + " 23:59:59", "%Y-%m-%d %H:%M:%S").timestamp())
+        conditions.append({"timestamp": {"$lte": ts}})
 
     if not conditions:
         return None
     if len(conditions) == 1:
         return conditions[0]
     return {"$and": conditions}
+
+
+def _rewrite_query(query: str, history: list) -> str:
+    """
+    Use LLM to rewrite a vague follow-up into a standalone search query.
+    If no history exists, returns the original query unchanged.
+    """
+    if not history:
+        return query
+
+    recent = history[-(HISTORY_WINDOW * 2):]
+    history_text = "\n".join(
+        f"{m['role'].upper()}: {m['content']}" for m in recent
+    )
+
+    client = OpenAI(
+        api_key=os.getenv("GROQ_API_KEY"),
+        base_url="https://api.groq.com/openai/v1"
+    )
+
+    response = client.chat.completions.create(
+        model="llama-3.3-70b-versatile",
+        messages=[{
+            "role": "user",
+            "content": f"""Given this conversation history:
+{history_text}
+
+Rewrite this follow-up question as a standalone search query (one sentence, no explanation):
+"{query}"
+"""
+        }],
+        max_tokens=60
+    )
+
+    return response.choices[0].message.content.strip()
 
 
 def _build_context(
@@ -89,7 +122,10 @@ def _build_context(
 
     docs = results["documents"][0] if results["documents"] else []
 
-    # Rerank — narrows RETRIEVAL_K → RERANK_TOP_N
+    # If filters were active but returned nothing, signal clearly instead of falling back
+    if where and not docs:
+        return "No commits found matching the active filters.", True
+
     reranked_docs = _rerank(query, docs)
 
     context = ""
@@ -161,18 +197,19 @@ def ask(
     """
     Query the RAG pipeline with reranking and optional metadata filters.
 
-    Pipeline: ChromaDB (top 10) → CrossEncoder reranker → top 3 → Groq LLM
+    Pipeline: query rewrite → ChromaDB (top 10) → CrossEncoder reranker → top 3 → Groq LLM
     """
     api_key = os.getenv("GROQ_API_KEY")
     if not api_key:
         raise ValueError("GROQ_API_KEY is not set.")
 
-    context, filters_active = _build_context(query, author, start_date, end_date)
+    search_query = _rewrite_query(query, history)
+    context, filters_active = _build_context(search_query, author, start_date, end_date)
 
     MAX_CONTEXT_CHARS = 12000
     if len(context) > MAX_CONTEXT_CHARS:
         context = context[:MAX_CONTEXT_CHARS] + "\n...(context truncated)"
-        
+
     messages = _build_messages(
         query, context, history,
         author=author,
