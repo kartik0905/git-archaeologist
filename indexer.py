@@ -89,7 +89,7 @@ def _index_commits(commit_limit: int, status_text, progress_bar) -> int:
     for commit in load_git_history(TEMP_REPO_PATH):
         batch_ids.append(commit["hash"])
         batch_docs.append(commit["content"])
-        batch_meta.append({"author": commit["author"], "date": commit["date"]})
+        batch_meta.append({"author": commit["author"], "date": commit["date"],"timestamp": commit["timestamp"]})
 
         if len(batch_ids) >= BATCH_SIZE:
             collection.add(ids=batch_ids, documents=batch_docs, metadatas=batch_meta)
