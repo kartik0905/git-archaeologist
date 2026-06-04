@@ -161,6 +161,16 @@ with st.sidebar:
 
 st.title("🏛️ Chat with Code History")
 
+# Warn user when filters are active
+if st.session_state.get("repo_loaded"):
+    active_warnings = []
+    if st.session_state.author_filter:
+        active_warnings.append(f"👤 Author: `{st.session_state.author_filter}`")
+    if st.session_state.start_date and st.session_state.end_date:
+        active_warnings.append(f"📅 Date: `{st.session_state.start_date}` → `{st.session_state.end_date}`")
+    if active_warnings:
+        st.warning("⚠️ Active filters: " + "  ·  ".join(active_warnings) + " — results are scoped. Clear them in the sidebar for full history.")
+
 if not st.session_state.repo_loaded:
     st.info("👈 Paste a GitHub URL in the sidebar and click **Analyze Repo** to get started.")
     st.stop()
