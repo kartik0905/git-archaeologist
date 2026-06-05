@@ -40,7 +40,7 @@ graph TD
 
 ---
 
-## Demo
+## Walkthrough
 
 https://github.com/user-attachments/assets/9e3cd9ae-e9a1-4eeb-b057-3065f0206aee
 
