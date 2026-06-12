@@ -1,8 +1,8 @@
 import os
+from datetime import datetime
 from openai import OpenAI
 from indexer import get_collection
 from functools import lru_cache
-from datetime import datetime
 
 # How many past messages to include for conversation context
 HISTORY_WINDOW = 5
@@ -38,7 +38,11 @@ def _rerank(query: str, docs: list[str]) -> list[str]:
     return [doc for _, doc in ranked[:RERANK_TOP_N]]
 
 
-def _build_where_clause(author=None, start_date=None, end_date=None):
+def _build_where_clause(author: str = None, start_date: str = None, end_date: str = None) -> dict | None:
+    """
+    Build a ChromaDB `where` clause from optional filters.
+    Returns None if no filters are active.
+    """
     conditions = []
 
     if author and author.strip():
@@ -57,6 +61,71 @@ def _build_where_clause(author=None, start_date=None, end_date=None):
     if len(conditions) == 1:
         return conditions[0]
     return {"$and": conditions}
+
+
+def _classify_query(query: str) -> str:
+    """
+    Use LLM to classify query as 'listing' or 'semantic'.
+    - listing: ordered/sequential queries (most recent, last N, first commit, newest)
+    - semantic: specific changes, reasons, authors, bugs, features
+    """
+    client = OpenAI(
+        api_key=os.getenv("GROQ_API_KEY"),
+        base_url="https://api.groq.com/openai/v1"
+    )
+
+    response = client.chat.completions.create(
+        model="llama-3.3-70b-versatile",
+        messages=[{
+            "role": "user",
+            "content": f"""Classify this Git repository question into one of two types:
+
+- "listing": questions asking for ordered/sequential commits (most recent, last N, first commit, latest, newest, chronological list)
+- "semantic": questions asking about specific changes, reasons, authors, bugs, features
+
+Reply with ONLY one word: listing or semantic.
+
+Question: "{query}"
+"""
+        }],
+        max_tokens=5
+    )
+
+    result = response.choices[0].message.content.strip().lower()
+    return "listing" if "listing" in result else "semantic"
+
+
+def _get_ordered_commits(query: str, n: int = 5) -> str:
+    """
+    Fetch commits directly from ChromaDB ordered by timestamp.
+    Used for listing/ordering queries that RAG can't handle reliably.
+    """
+    collection = get_collection()
+    results = collection.get(
+        limit=500,
+        include=["metadatas", "documents"]
+    )
+
+    docs = results["documents"]
+    metas = results["metadatas"]
+
+    # Sort by timestamp descending (most recent first)
+    paired = sorted(
+        zip(metas, docs),
+        key=lambda x: x[0].get("timestamp", 0),
+        reverse=True
+    )
+
+    # Reverse for first/earliest queries
+    if any(kw in query.lower() for kw in ["first", "earliest", "initial"]):
+        paired = list(reversed(paired))
+
+    top = paired[:n]
+    context = ""
+    for i, (meta, doc) in enumerate(top):
+        context += f"--- COMMIT {i + 1} ---\n{doc}\n\n"
+
+    return context
 
 
 def _rewrite_query(query: str, history: list) -> str:
@@ -122,7 +191,7 @@ def _build_context(
 
     docs = results["documents"][0] if results["documents"] else []
 
-    # If filters were active but returned nothing, signal clearly instead of falling back
+    # If filters were active but returned nothing, signal clearly
     if where and not docs:
         return "No commits found matching the active filters.", True
 
@@ -168,7 +237,8 @@ Rules:
 - When you see a diff like '- timeout = 5' and '+ timeout = 10', explicitly state the value changed from 5 to 10.
 - Always cite the commit hash and author when referencing a specific change.
 - If the context doesn't contain enough information to answer, say so clearly — do not hallucinate.
-- Keep answers concise and technical. Avoid filler sentences.{filter_note}
+- Keep answers concise and technical. Avoid filler sentences.
+- For listing queries (last N commits, recent commits), present them in order with commit hash, author, date and message.{filter_note}
 """
 
     messages = [{"role": "system", "content": system_prompt}]
@@ -197,14 +267,27 @@ def ask(
     """
     Query the RAG pipeline with reranking and optional metadata filters.
 
-    Pipeline: query rewrite → ChromaDB (top 10) → CrossEncoder reranker → top 3 → Groq LLM
+    Pipeline: classify → (listing: ordered fetch) | (semantic: rewrite → ChromaDB → rerank) → Groq LLM
     """
     api_key = os.getenv("GROQ_API_KEY")
     if not api_key:
         raise ValueError("GROQ_API_KEY is not set.")
 
-    search_query = _rewrite_query(query, history)
-    context, filters_active = _build_context(search_query, author, start_date, end_date)
+    # Classify query type
+    query_type = _classify_query(query)
+
+    if query_type == "listing":
+        # Extract number from query if present e.g. "last 10 commits"
+        n = 5
+        for num in ["10", "7", "6", "5", "4", "3", "2"]:
+            if num in query:
+                n = int(num)
+                break
+        context = _get_ordered_commits(query, n=n)
+        filters_active = False
+    else:
+        search_query = _rewrite_query(query, history)
+        context, filters_active = _build_context(search_query, author, start_date, end_date)
 
     MAX_CONTEXT_CHARS = 12000
     if len(context) > MAX_CONTEXT_CHARS:
