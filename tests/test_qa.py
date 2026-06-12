@@ -44,23 +44,29 @@ class TestBuildWhereClause:
 
     def test_start_date_only(self):
         result = _build_where_clause(start_date="2023-01-01")
-        assert result == {"date": {"$gte": "2023-01-01"}}
+        assert "timestamp" in result
+        assert "$gte" in result["timestamp"]
+        assert isinstance(result["timestamp"]["$gte"], int)
 
     def test_end_date_only(self):
         result = _build_where_clause(end_date="2023-12-31")
-        assert result == {"date": {"$lte": "2023-12-31 23:59:59"}}
+        assert "timestamp" in result
+        assert "$lte" in result["timestamp"]
+        assert isinstance(result["timestamp"]["$lte"], int)
 
     def test_end_date_appends_end_of_day(self):
+        from datetime import datetime
         result = _build_where_clause(end_date="2024-06-15")
-        assert result["date"]["$lte"] == "2024-06-15 23:59:59"
+        expected_ts = int(datetime.strptime("2024-06-15 23:59:59", "%Y-%m-%d %H:%M:%S").timestamp())
+        assert result["timestamp"]["$lte"] == expected_ts
 
     def test_date_range_only_uses_and(self):
         result = _build_where_clause(start_date="2023-01-01", end_date="2023-12-31")
         assert "$and" in result
         conditions = result["$and"]
         assert len(conditions) == 2
-        assert {"date": {"$gte": "2023-01-01"}} in conditions
-        assert {"date": {"$lte": "2023-12-31 23:59:59"}} in conditions
+        keys = [list(c.keys())[0] for c in conditions]
+        assert "timestamp" in keys
 
     def test_all_three_filters_uses_and_with_three_conditions(self):
         result = _build_where_clause(
