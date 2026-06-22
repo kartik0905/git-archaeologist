@@ -1,3 +1,13 @@
+---
+title: Git Archaeologist
+emoji: 🚀
+colorFrom: blue
+colorTo: purple
+sdk: docker
+app_port: 7860
+pinned: false
+---
+
 # Legacy Code Archaeologist
 
 A RAG-based tool that lets you query the **history** of any Git repository in plain English — not the current code, but *why it became what it is*.
