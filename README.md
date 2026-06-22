@@ -8,7 +8,7 @@ app_port: 7860
 pinned: false
 ---
 
-# Legacy Code Archaeologist
+# Git Archaeologist
 
 A RAG-based tool that lets you query the **history** of any Git repository in plain English — not the current code, but *why it became what it is*.
 
@@ -17,6 +17,13 @@ A RAG-based tool that lets you query the **history** of any Git repository in pl
 ![Groq](https://img.shields.io/badge/Groq-LLaMA--3.3--70B-orange)
 ![License](https://img.shields.io/badge/License-MIT-yellow)
 ![Tests](https://img.shields.io/badge/Tests-49%20passing-brightgreen)
+
+---
+
+## Live Demo
+
+**Hugging Face Space:**  
+https://huggingface.co/spaces/kartik0905/git-archaeologist
 
 ---
 
@@ -58,25 +65,25 @@ https://github.com/user-attachments/assets/9e3cd9ae-e9a1-4eeb-b057-3065f0206aee
 
 ## Key engineering decisions
 
-**Query rewriting**
+**Query rewriting**  
 Follow-up questions like "who worked on it?" are rewritten into standalone search queries before hitting ChromaDB. The LLM uses conversation history to resolve vague references — so retrieval is context-aware, not just keyword-based.
 
-**Two-stage retrieval (ChromaDB + reranker)**
+**Two-stage retrieval (ChromaDB + reranker)**  
 Pure vector similarity returns commits that *look* related. The cross-encoder (`ms-marco-MiniLM-L-6-v2`) re-scores each result against your exact question and keeps only the top 3. Precision over recall.
 
-**Hunk-based diff chunking**
+**Hunk-based diff chunking**  
 Diffs are split at `@@` boundaries, not truncated at a character limit. The LLM sees complete, meaningful code hunks — so it can say "the value changed from 5 to 10" rather than a vague summary.
 
-**Timestamp-based metadata filtering**
+**Timestamp-based metadata filtering**  
 Author and date range filters are pushed down to ChromaDB `where` clauses using Unix timestamps for accurate numeric comparison. If a filter returns no commits, the tool says so explicitly instead of silently falling back to unfiltered results.
 
-**Multi-turn conversation**
+**Multi-turn conversation**  
 Last 5 turns of chat history are injected into every LLM call. Follow-up questions work without repeating context.
 
-**Private repo support**
+**Private repo support**  
 GitHub PAT is injected into the clone URL at runtime via `urlparse` — never written to disk, wiped on reset.
 
-**O(1) memory mining**
+**O(1) memory mining**  
 The commit iterator is a Python generator. Shallow cloning (`--depth`) keeps fetches fast for recent history queries.
 
 ---
@@ -92,18 +99,22 @@ The commit iterator is a Python generator. Shallow cloning (`--depth`) keeps fet
 | Reranker | `cross-encoder/ms-marco-MiniLM-L-6-v2` |
 | Git parsing | GitPython |
 | Package manager | uv |
+| Deployment | Hugging Face Spaces (Docker) |
 
 ---
 
 ## Project structure
 
-```
+```text
 ├── app.py          # Streamlit UI
 ├── indexer.py      # Clone + batch-index into ChromaDB
 ├── qa.py           # Query rewriting → Retrieval → reranking → LLM call
 ├── miner.py        # Generator-based diff parser
 ├── utils.py        # PDF export, cleanup, token injection
-└── tests/          # 49 tests, no external services required
+├── tests/          # 49 tests, no external services required
+├── Dockerfile
+├── requirements.txt
+└── README.md
 ```
 
 ---
@@ -119,6 +130,15 @@ streamlit run app.py
 ```
 
 > The first query downloads the reranker model (~90MB) and caches it locally. All subsequent runs load from cache.
+
+---
+
+## Deployment
+
+The application is deployed on Hugging Face Spaces using Docker.
+
+**Live Demo:**  
+https://huggingface.co/spaces/kartik0905/git-archaeologist
 
 ---
 
