@@ -1,3 +1,4 @@
+import os
 import git
 import chromadb
 import streamlit as st
@@ -69,6 +70,9 @@ def _validate_repo(repo_url: str, token: str, status_text) -> bool:
 
 def _index_commits(commit_limit: int, status_text, progress_bar) -> int:
     """Mine commits from cloned repo and insert into ChromaDB. Returns total indexed."""
+
+    os.makedirs(CHROMA_PATH, exist_ok=True)
+
     client = chromadb.PersistentClient(path=CHROMA_PATH)
 
 

@@ -4,8 +4,8 @@ import time
 from urllib.parse import urlparse
 from fpdf import FPDF
 
-TEMP_REPO_PATH = "./temp_repo_clone"
-CHROMA_PATH = "./chroma_db"
+CHROMA_PATH = "/tmp/chroma_db"
+TEMP_REPO_PATH = "/tmp/temp_repo_clone"
 
 
 def remove_readonly(func, path, excinfo):
