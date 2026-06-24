@@ -7,7 +7,6 @@ from chromadb.utils import embedding_functions
 
 from miner import load_git_history
 from utils import (
-    cleanup_temp_data,
     TEMP_REPO_PATH,
     CHROMA_PATH,
     inject_github_token,
@@ -24,8 +23,8 @@ def _get_embedding_function():
 
 
 def get_collection():
-    """Return the existing ChromaDB collection (call after indexing)."""
     client = chromadb.PersistentClient(path=CHROMA_PATH)
+
     return client.get_collection(
         name="git_commits",
         embedding_function=_get_embedding_function(),
@@ -33,8 +32,6 @@ def get_collection():
 
 
 def _clone_repo(repo_url: str, commit_limit: int, token: str, status_text) -> bool:
-    """Clone repo — shallow if limit set, full otherwise."""
-
     auth_url = inject_github_token(repo_url, token)
 
     try:
@@ -57,8 +54,6 @@ def _clone_repo(repo_url: str, commit_limit: int, token: str, status_text) -> bo
 
 
 def _validate_repo(repo_url: str, token: str, status_text) -> bool:
-    """Check that the URL points to a real, accessible repo."""
-
     if not repo_url.startswith(("http://", "https://")):
         status_text.error("❌ Invalid URL. Must start with http:// or https://")
         return False
@@ -85,15 +80,14 @@ def _validate_repo(repo_url: str, token: str, status_text) -> bool:
 
 
 def _index_commits(commit_limit: int, status_text, progress_bar) -> int:
-    """Mine commits from cloned repo and insert into ChromaDB."""
-
-    # Recreate Chroma directory from scratch
-    if os.path.exists(CHROMA_PATH):
-        shutil.rmtree(CHROMA_PATH, ignore_errors=True)
-
     os.makedirs(CHROMA_PATH, exist_ok=True)
 
     client = chromadb.PersistentClient(path=CHROMA_PATH)
+
+    try:
+        client.delete_collection("git_commits")
+    except Exception:
+        pass
 
     collection = client.get_or_create_collection(
         name="git_commits",
@@ -113,9 +107,9 @@ def _index_commits(commit_limit: int, status_text, progress_bar) -> int:
 
         batch_meta.append(
             {
-                "author": commit["author"],
-                "date": commit["date"],
-                "timestamp": commit["timestamp"],
+                "author": str(commit["author"]),
+                "date": str(commit["date"]),
+                "timestamp": int(commit["timestamp"]),
             }
         )
 
@@ -147,12 +141,6 @@ def _index_commits(commit_limit: int, status_text, progress_bar) -> int:
 
 
 def run_indexing(repo_url: str, commit_limit: int, token: str = None) -> bool:
-    """
-    Full pipeline: validate → cleanup → clone → index.
-    Returns True on success.
-    """
-
-    # Only clean old cloned repository
     if os.path.exists(TEMP_REPO_PATH):
         shutil.rmtree(TEMP_REPO_PATH, ignore_errors=True)
 
